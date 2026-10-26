@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Sistema de gestão de frotas e entregas. Gerência de veículos, motoristas, entrega e notificação. Composto por 3 APIs de back-end e 2 front-ends. Monorepo nx.
+Sistema de gestão de frotas e entregas. Gerência de veículos, motoristas, entrega e notificação. Composto por 3 APIs de back-end e 2 front-ends (Monorepo nx).
 
 ## Repositórios
 
