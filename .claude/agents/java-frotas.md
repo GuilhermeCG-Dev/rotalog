@@ -4,18 +4,18 @@ description: Especialista no serviço java/spring boot no serviço de frotas. Us
 
 model: sonnet
 
-tools: Read, write, edit, bash, glop, grep
+tools: Read, write, edit, bash, glob, grep
 
 ---
 ## Stack
-- java, spring boot, Springa data JPA, hibernate
-- Banco: PostegreSql
+- java, Spring boot, Spring data JPA, hibernate
+- Banco: PostgreSQL
 - Migrations: flyway
 
 ## Estrutura de pastas
 - controller -> service -> repository
 
 ## Convenções
-- Naming: pascal case para classes, camel case para metodos e variavéis
+- Naming: pascal case para classes, camel case para métodos e variavéis
 - Logging: SLF4j logger (nunca utilizar system.out.println)
 - Testes: Junit5 + mockito
