@@ -1,8 +1,15 @@
 package com.rotalog.service;
 
 import com.rotalog.domain.Veiculo;
+import com.rotalog.exception.DadoVeiculoInvalidoException;
+import com.rotalog.exception.PlacaDuplicadaException;
+import com.rotalog.exception.PlacaInvalidaException;
+import com.rotalog.exception.QuilometragemInvalidaException;
+import com.rotalog.exception.StatusVeiculoInvalidoException;
+import com.rotalog.exception.VeiculoNaoEncontradoException;
 import com.rotalog.repository.VeiculoRepository;
 import com.rotalog.service.validation.VeiculoValidator;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -84,7 +91,7 @@ class VeiculoServiceTest {
     void buscarPorIdDeveLancarExcecaoQuandoNaoExiste() {
         when(veiculoRepository.findById(99L)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> veiculoService.buscarPorId(99L));
+        RuntimeException ex = assertThrows(VeiculoNaoEncontradoException.class, () -> veiculoService.buscarPorId(99L));
         assertEquals("Veículo não encontrado: 99", ex.getMessage());
     }
 
@@ -100,18 +107,34 @@ class VeiculoServiceTest {
     void buscarPorPlacaDeveLancarExcecaoQuandoNaoExiste() {
         when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> veiculoService.buscarPorPlaca(PLACA));
+        RuntimeException ex = assertThrows(VeiculoNaoEncontradoException.class,
+                () -> veiculoService.buscarPorPlaca(PLACA));
         assertEquals("Veículo não encontrado com placa: " + PLACA, ex.getMessage());
+    }
+
+    @Test
+    void buscarPorPlacaDeveNormalizarCaixaEEspacos() {
+        Veiculo veiculo = criarVeiculo(1L, PLACA, 0L);
+        when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.of(veiculo));
+
+        assertSame(veiculo, veiculoService.buscarPorPlaca("  abc1234 "));
+    }
+
+    @Test
+    void buscarPorPlacaDeveLancarExcecaoQuandoPlacaNula() {
+        when(veiculoRepository.findByPlaca(null)).thenReturn(Optional.empty());
+
+        assertThrows(VeiculoNaoEncontradoException.class, () -> veiculoService.buscarPorPlaca(null));
     }
 
     // registrarVeiculo
 
     @Test
     void registrarVeiculoDeveSalvarENotificarQuandoDadosValidos() {
-        when(veiculoRepository.findByPlaca("abc1234")).thenReturn(Optional.empty());
+        when(veiculoRepository.findByPlaca("ABC1234")).thenReturn(Optional.empty());
         mockSaveRetornaArgumento();
 
-        Veiculo salvo = veiculoService.registrarVeiculo("abc1234", "Scania R450", 2021);
+        Veiculo salvo = veiculoService.registrarVeiculo(" abc1234 ", "Scania R450", 2021);
 
         assertEquals("ABC1234", salvo.getPlaca());
         assertEquals("Scania R450", salvo.getModelo());
@@ -123,7 +146,7 @@ class VeiculoServiceTest {
 
     @Test
     void registrarVeiculoDeveLancarExcecaoQuandoPlacaNula() {
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(PlacaInvalidaException.class,
                 () -> veiculoService.registrarVeiculo(null, "Volvo FH", 2020));
         assertEquals("Placa é obrigatória", ex.getMessage());
         verifyNoInteractions(veiculoRepository, notificador);
@@ -138,26 +161,53 @@ class VeiculoServiceTest {
 
     @Test
     void registrarVeiculoDeveLancarExcecaoQuandoPlacaTamanhoInvalido() {
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(PlacaInvalidaException.class,
                 () -> veiculoService.registrarVeiculo("ABC123", "Volvo FH", 2020));
         assertEquals("Placa deve ter 7 caracteres", ex.getMessage());
+    }
+
+    @Test
+    void registrarVeiculoDeveLancarExcecaoQuandoPlacaComCaracteresInvalidos() {
+        RuntimeException ex = assertThrows(PlacaInvalidaException.class,
+                () -> veiculoService.registrarVeiculo("!!!!!!!", "Volvo FH", 2020));
+        assertEquals("Placa em formato inválido", ex.getMessage());
+        verifyNoInteractions(veiculoRepository, notificador);
     }
 
     @Test
     void registrarVeiculoDeveLancarExcecaoQuandoPlacaDuplicada() {
         when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.of(criarVeiculo(1L, PLACA, 0L)));
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(PlacaDuplicadaException.class,
                 () -> veiculoService.registrarVeiculo(PLACA, "Volvo FH", 2020));
         assertEquals("Veículo com placa " + PLACA + " já existe", ex.getMessage());
         verify(veiculoRepository, never()).save(any());
     }
 
     @Test
+    void registrarVeiculoDeveDetectarDuplicidadeIndependenteDeCaixa() {
+        when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.of(criarVeiculo(1L, PLACA, 0L)));
+
+        assertThrows(PlacaDuplicadaException.class,
+                () -> veiculoService.registrarVeiculo("abc1234", "Volvo FH", 2020));
+        verify(veiculoRepository, never()).save(any());
+    }
+
+    @Test
+    void registrarVeiculoDeveLancarPlacaDuplicadaQuandoConstraintUniqueFalha() {
+        when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.empty());
+        when(veiculoRepository.save(any(Veiculo.class))).thenThrow(new DataIntegrityViolationException("unique"));
+
+        assertThrows(PlacaDuplicadaException.class,
+                () -> veiculoService.registrarVeiculo(PLACA, "Volvo FH", 2020));
+        verifyNoInteractions(notificador);
+    }
+
+    @Test
     void registrarVeiculoDeveLancarExcecaoQuandoModeloNulo() {
         when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(DadoVeiculoInvalidoException.class,
                 () -> veiculoService.registrarVeiculo(PLACA, null, 2020));
         assertEquals("Modelo é obrigatório", ex.getMessage());
     }
@@ -166,7 +216,7 @@ class VeiculoServiceTest {
     void registrarVeiculoDeveLancarExcecaoQuandoModeloVazio() {
         when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(DadoVeiculoInvalidoException.class,
                 () -> veiculoService.registrarVeiculo(PLACA, "", 2020));
         assertEquals("Modelo é obrigatório", ex.getMessage());
     }
@@ -175,7 +225,7 @@ class VeiculoServiceTest {
     void registrarVeiculoDeveLancarExcecaoQuandoAnoNulo() {
         when(veiculoRepository.findByPlaca(PLACA)).thenReturn(Optional.empty());
 
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(DadoVeiculoInvalidoException.class,
                 () -> veiculoService.registrarVeiculo(PLACA, "Volvo FH", null));
         assertEquals("Ano de fabricação inválido", ex.getMessage());
     }
@@ -241,19 +291,51 @@ class VeiculoServiceTest {
     }
 
     @Test
-    void atualizarVeiculoDevePermitirReduzirQuilometragemApenasComAviso() {
+    void atualizarVeiculoDeveRejeitarReducaoDeQuilometragem() {
         Veiculo veiculo = criarVeiculo(1L, PLACA, 1000L);
+        when(veiculoRepository.findById(1L)).thenReturn(Optional.of(veiculo));
+
+        assertThrows(QuilometragemInvalidaException.class, () -> veiculoService.atualizarVeiculo(1L, null, null, 500L));
+        assertEquals(1000L, veiculo.getQuilometragem());
+        verify(veiculoRepository, never()).save(any());
+    }
+
+    @Test
+    void atualizarVeiculoDeveRejeitarQuilometragemNegativa() {
+        when(veiculoRepository.findById(1L)).thenReturn(Optional.of(criarVeiculo(1L, PLACA, 0L)));
+
+        assertThrows(QuilometragemInvalidaException.class, () -> veiculoService.atualizarVeiculo(1L, null, null, -1L));
+    }
+
+    @Test
+    void atualizarVeiculoDeveAceitarQuilometragemQuandoAtualNula() {
+        Veiculo veiculo = criarVeiculo(1L, PLACA, null);
         when(veiculoRepository.findById(1L)).thenReturn(Optional.of(veiculo));
         mockSaveRetornaArgumento();
 
-        assertEquals(500L, veiculoService.atualizarVeiculo(1L, null, null, 500L).getQuilometragem());
+        assertEquals(10L, veiculoService.atualizarVeiculo(1L, null, null, 10L).getQuilometragem());
+    }
+
+    @Test
+    void atualizarVeiculoDeveRejeitarAnoInvalido() {
+        when(veiculoRepository.findById(1L)).thenReturn(Optional.of(criarVeiculo(1L, PLACA, 0L)));
+
+        assertThrows(DadoVeiculoInvalidoException.class, () -> veiculoService.atualizarVeiculo(1L, null, 1800, null));
+        verify(veiculoRepository, never()).save(any());
+    }
+
+    @Test
+    void atualizarVeiculoDeveRejeitarModeloSoComEspacos() {
+        when(veiculoRepository.findById(1L)).thenReturn(Optional.of(criarVeiculo(1L, PLACA, 0L)));
+
+        assertThrows(DadoVeiculoInvalidoException.class, () -> veiculoService.atualizarVeiculo(1L, "   ", null, null));
     }
 
     @Test
     void atualizarVeiculoDeveLancarExcecaoQuandoNaoExiste() {
         when(veiculoRepository.findById(9L)).thenReturn(Optional.empty());
 
-        assertThrows(RuntimeException.class, () -> veiculoService.atualizarVeiculo(9L, "X", 2020, 1L));
+        assertThrows(VeiculoNaoEncontradoException.class, () -> veiculoService.atualizarVeiculo(9L, "X", 2020, 1L));
         verify(veiculoRepository, never()).save(any());
     }
 
@@ -270,10 +352,24 @@ class VeiculoServiceTest {
 
     @Test
     void obterVeiculosPorStatusDeveLancarExcecaoQuandoStatusInvalido() {
-        RuntimeException ex = assertThrows(RuntimeException.class,
+        RuntimeException ex = assertThrows(StatusVeiculoInvalidoException.class,
                 () -> veiculoService.obterVeiculosPorStatus("OUTRO"));
         assertEquals("Status inválido: OUTRO", ex.getMessage());
         verifyNoInteractions(veiculoRepository);
+    }
+
+    @Test
+    void obterVeiculosPorStatusDeveLancarExcecaoQuandoStatusNulo() {
+        assertThrows(StatusVeiculoInvalidoException.class, () -> veiculoService.obterVeiculosPorStatus(null));
+        verifyNoInteractions(veiculoRepository);
+    }
+
+    @Test
+    void obterVeiculosPorStatusDeveIgnorarCaixaEEspacos() {
+        List<Veiculo> lista = List.of(criarVeiculo(1L, PLACA, 0L));
+        when(veiculoRepository.findByStatus("ATIVO")).thenReturn(lista);
+
+        assertSame(lista, veiculoService.obterVeiculosPorStatus(" ativo "));
     }
 
     // agendarManutencaoPreventiva
@@ -286,12 +382,5 @@ class VeiculoServiceTest {
         veiculoService.agendarManutencaoPreventiva(1L, 60000L);
 
         verify(notificador).notificarManutencaoAgendada(veiculo, 60000L);
-    }
-
-    @Test
-    void sincronizarComSistemaExternoNaoDeveLancarExcecaoNemInteragirComDependencias() {
-        veiculoService.sincronizarComSistemaExterno();
-
-        verifyNoInteractions(veiculoRepository, notificador);
     }
 }

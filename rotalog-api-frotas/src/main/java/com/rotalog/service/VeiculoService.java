@@ -1,14 +1,20 @@
 package com.rotalog.service;
 
 import com.rotalog.domain.Veiculo;
+import com.rotalog.exception.PlacaDuplicadaException;
+import com.rotalog.exception.StatusVeiculoInvalidoException;
+import com.rotalog.exception.VeiculoNaoEncontradoException;
 import com.rotalog.repository.VeiculoRepository;
 import com.rotalog.service.validation.VeiculoValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 /**
  * Consulta, cadastro e atualização de veículos. Status, quilometragem, estatísticas,
@@ -18,6 +24,8 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 public class VeiculoService {
+
+    private static final Set<String> STATUS_VALIDOS = Set.of("ATIVO", "INATIVO", "MANUTENCAO");
 
     private final VeiculoRepository veiculoRepository;
     private final VeiculoValidator validator;
@@ -32,34 +40,40 @@ public class VeiculoService {
     @Transactional(readOnly = true)
     public Veiculo buscarPorId(Long id) {
         return veiculoRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Veículo não encontrado: " + id)); // FIXME: Use proper exception
+                .orElseThrow(() -> VeiculoNaoEncontradoException.porId(id));
     }
 
     @Transactional(readOnly = true)
     public Veiculo buscarPorPlaca(String placa) {
-        return veiculoRepository.findByPlaca(placa)
-                .orElseThrow(() -> new RuntimeException("Veículo não encontrado com placa: " + placa));
+        return veiculoRepository.findByPlaca(validator.normalizarPlaca(placa))
+                .orElseThrow(() -> VeiculoNaoEncontradoException.porPlaca(placa));
     }
 
     @Transactional
     public Veiculo registrarVeiculo(String placa, String modelo, Integer anoFabricacao) {
-        validator.validarPlaca(placa);
+        String placaNormalizada = validator.validarPlaca(placa);
 
-        if (veiculoRepository.findByPlaca(placa).isPresent()) {
-            throw new RuntimeException("Veículo com placa " + placa + " já existe"); // FIXME: Use proper exception
+        if (veiculoRepository.findByPlaca(placaNormalizada).isPresent()) {
+            throw new PlacaDuplicadaException(placaNormalizada);
         }
 
         validator.validarModelo(modelo);
         validator.validarAnoFabricacao(anoFabricacao);
 
         Veiculo veiculo = new Veiculo();
-        veiculo.setPlaca(placa.toUpperCase());
+        veiculo.setPlaca(placaNormalizada);
         veiculo.setModelo(modelo);
         veiculo.setAnoFabricacao(anoFabricacao);
         veiculo.setStatus("ATIVO");
         veiculo.setQuilometragem(0L);
 
-        Veiculo salvo = veiculoRepository.save(veiculo);
+        Veiculo salvo;
+        try {
+            salvo = veiculoRepository.save(veiculo);
+        } catch (DataIntegrityViolationException e) {
+            // Corrida entre a checagem acima e o insert: a constraint unique decide
+            throw new PlacaDuplicadaException(placaNormalizada);
+        }
         log.info("Veículo registrado: {} - {}", salvo.getPlaca(), salvo.getModelo());
 
         notificador.notificarNovoVeiculo(salvo);
@@ -71,17 +85,15 @@ public class VeiculoService {
         Veiculo veiculo = buscarPorId(id);
 
         if (modelo != null && !modelo.isEmpty()) {
+            validator.validarModelo(modelo);
             veiculo.setModelo(modelo);
         }
         if (anoFabricacao != null) {
+            validator.validarAnoFabricacao(anoFabricacao);
             veiculo.setAnoFabricacao(anoFabricacao);
         }
         if (quilometragem != null) {
-            if (quilometragem < veiculo.getQuilometragem()) {
-                // FIXME: deveria lançar exceção, não apenas logar
-                log.warn("Tentativa de reduzir quilometragem do veículo {}: {} -> {}",
-                    id, veiculo.getQuilometragem(), quilometragem);
-            }
+            validator.validarQuilometragem(veiculo.getQuilometragem(), quilometragem);
             veiculo.setQuilometragem(quilometragem);
         }
 
@@ -91,11 +103,12 @@ public class VeiculoService {
     // FIXME: Hardcoded status values, sem paginação
     @Transactional(readOnly = true)
     public List<Veiculo> obterVeiculosPorStatus(String status) {
-        if (!status.equals("ATIVO") && !status.equals("INATIVO") && !status.equals("MANUTENCAO")) {
-            throw new RuntimeException("Status inválido: " + status); // FIXME: Use proper exception
+        String normalizado = status == null ? null : status.trim().toUpperCase(Locale.ROOT);
+        if (normalizado == null || !STATUS_VALIDOS.contains(normalizado)) {
+            throw new StatusVeiculoInvalidoException(status);
         }
 
-        return veiculoRepository.findByStatus(status);
+        return veiculoRepository.findByStatus(normalizado);
     }
 
     // FIXME: não agenda nada, apenas loga e notifica
@@ -107,11 +120,5 @@ public class VeiculoService {
             veiculo.getPlaca(), quilometragemLimite);
 
         notificador.notificarManutencaoAgendada(veiculo, quilometragemLimite);
-    }
-
-    // FIXME: stub sem chamador
-    public void sincronizarComSistemaExterno() {
-        log.info("Sincronização com sistema externo iniciada");
-        System.out.println("Sincronização iniciada"); // FIXME: Use logger
     }
 }

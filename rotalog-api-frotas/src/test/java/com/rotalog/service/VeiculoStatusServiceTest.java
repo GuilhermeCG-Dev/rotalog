@@ -1,6 +1,8 @@
 package com.rotalog.service;
 
 import com.rotalog.domain.Veiculo;
+import com.rotalog.exception.TransicaoStatusInvalidaException;
+import com.rotalog.exception.VeiculoNaoEncontradoException;
 import com.rotalog.repository.VeiculoRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -9,6 +11,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -52,10 +55,31 @@ class VeiculoStatusServiceTest {
     }
 
     @Test
-    void desativarVeiculoDevePropagarExcecaoQuandoNaoExiste() {
-        when(veiculoService.buscarPorId(9L)).thenThrow(new RuntimeException("Veículo não encontrado: 9"));
+    void desativarVeiculoDeveSerIdempotenteQuandoJaInativo() {
+        Veiculo veiculo = criarVeiculo("INATIVO");
+        when(veiculoService.buscarPorId(1L)).thenReturn(veiculo);
 
-        assertThrows(RuntimeException.class, () -> service.desativarVeiculo(9L));
+        assertSame(veiculo, service.desativarVeiculo(1L));
+        verify(veiculoRepository, never()).save(any());
+        verifyNoInteractions(notificador);
+    }
+
+    @Test
+    void desativarVeiculoDeveBloquearQuandoEmManutencao() {
+        Veiculo veiculo = criarVeiculo("MANUTENCAO");
+        when(veiculoService.buscarPorId(1L)).thenReturn(veiculo);
+
+        assertThrows(TransicaoStatusInvalidaException.class, () -> service.desativarVeiculo(1L));
+        assertEquals("MANUTENCAO", veiculo.getStatus());
+        verify(veiculoRepository, never()).save(any());
+        verifyNoInteractions(notificador);
+    }
+
+    @Test
+    void desativarVeiculoDevePropagarExcecaoQuandoNaoExiste() {
+        when(veiculoService.buscarPorId(9L)).thenThrow(VeiculoNaoEncontradoException.porId(9L));
+
+        assertThrows(VeiculoNaoEncontradoException.class, () -> service.desativarVeiculo(9L));
         verify(veiculoRepository, never()).save(any());
         verifyNoInteractions(notificador);
     }
@@ -73,10 +97,30 @@ class VeiculoStatusServiceTest {
     }
 
     @Test
-    void reativarVeiculoDevePropagarExcecaoQuandoNaoExiste() {
-        when(veiculoService.buscarPorId(9L)).thenThrow(new RuntimeException("Veículo não encontrado: 9"));
+    void reativarVeiculoDeveSerIdempotenteQuandoJaAtivo() {
+        Veiculo veiculo = criarVeiculo("ATIVO");
+        when(veiculoService.buscarPorId(1L)).thenReturn(veiculo);
 
-        assertThrows(RuntimeException.class, () -> service.reativarVeiculo(9L));
+        assertSame(veiculo, service.reativarVeiculo(1L));
+        verify(veiculoRepository, never()).save(any());
+    }
+
+    @Test
+    void reativarVeiculoDeveBloquearQuandoEmManutencao() {
+        Veiculo veiculo = criarVeiculo("MANUTENCAO");
+        when(veiculoService.buscarPorId(1L)).thenReturn(veiculo);
+
+        RuntimeException ex = assertThrows(TransicaoStatusInvalidaException.class, () -> service.reativarVeiculo(1L));
+        assertEquals("Transição de status inválida: MANUTENCAO -> ATIVO", ex.getMessage());
+        assertEquals("MANUTENCAO", veiculo.getStatus());
+        verify(veiculoRepository, never()).save(any());
+    }
+
+    @Test
+    void reativarVeiculoDevePropagarExcecaoQuandoNaoExiste() {
+        when(veiculoService.buscarPorId(9L)).thenThrow(VeiculoNaoEncontradoException.porId(9L));
+
+        assertThrows(VeiculoNaoEncontradoException.class, () -> service.reativarVeiculo(9L));
         verify(veiculoRepository, never()).save(any());
     }
 }
