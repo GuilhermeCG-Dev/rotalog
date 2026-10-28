@@ -36,7 +36,15 @@
     "testEnvironment": "node",
     "collectCoverageFrom": [
       "src/middleware/auth.js",
-      "src/routes/entregas.js"
+      "src/routes/entregas.js",
+      "src/services/entregaService.js",
+      "src/services/entregaServiceDefault.js",
+      "src/services/entregaStatus.js",
+      "src/services/distanciaService.js",
+      "src/services/numeroPedido.js",
+      "src/repositories/entregaRepository.js",
+      "src/middleware/asyncHandler.js",
+      "src/errors/index.js"
     ],
     "coverageThreshold": {
       "global": {
