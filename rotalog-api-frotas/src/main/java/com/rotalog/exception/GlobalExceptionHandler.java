@@ -30,7 +30,7 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler({PlacaInvalidaException.class, DadoVeiculoInvalidoException.class,
-            StatusVeiculoInvalidoException.class})
+            StatusVeiculoInvalidoException.class, StatusAlertaInvalidoException.class})
     public ResponseEntity<Map<String, String>> requisicaoInvalida(RotalogException e) {
         return resposta(HttpStatus.BAD_REQUEST, e);
     }

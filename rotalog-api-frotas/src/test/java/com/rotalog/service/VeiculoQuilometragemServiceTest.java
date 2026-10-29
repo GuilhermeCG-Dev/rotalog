@@ -37,7 +37,7 @@ class VeiculoQuilometragemServiceTest {
     @BeforeEach
     void setUp() {
         service = new VeiculoQuilometragemService(veiculoService, veiculoRepository, new VeiculoValidator(),
-                new ManutencaoPreventivaPolicy(50000L, 500.0, 0.05), notificador);
+                new ManutencaoPreventivaPolicy(50000L, 6, 500.0, 0.05), notificador);
     }
 
     private Veiculo criarVeiculo(Long quilometragem) {
