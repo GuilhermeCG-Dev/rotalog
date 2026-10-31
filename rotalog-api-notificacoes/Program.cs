@@ -9,10 +9,20 @@
 
 using Microsoft.EntityFrameworkCore;
 using api_notificacoes.Data;
+using api_notificacoes.Middleware;
 using api_notificacoes.Services;
 using MediatR;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Log estruturado (JSON) no console, incluindo escopos (correlationId)
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole(options =>
+{
+    options.IncludeScopes = true;
+    options.UseUtcTimestamp = true;
+    options.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ ";
+});
 
 // Add services to the container
 builder.Services.AddControllers();
@@ -60,6 +70,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 // Configure the HTTP request pipeline
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseSwagger();
 app.UseSwaggerUI(c =>
 {

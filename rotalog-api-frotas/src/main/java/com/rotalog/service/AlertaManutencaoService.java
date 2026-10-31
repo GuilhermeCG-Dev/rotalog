@@ -1,6 +1,7 @@
 package com.rotalog.service;
 
 import com.rotalog.domain.AlertaManutencao;
+import com.rotalog.logging.CorrelationId;
 import com.rotalog.domain.Manutencao;
 import com.rotalog.domain.MotivoAlerta;
 import com.rotalog.domain.StatusAlerta;
@@ -12,10 +13,12 @@ import com.rotalog.repository.AlertaManutencaoRepository;
 import com.rotalog.repository.ManutencaoRepository;
 import com.rotalog.repository.VeiculoRepository;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -24,6 +27,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+
+import static net.logstash.logback.argument.StructuredArguments.kv;
 
 /**
  * Detecta veículos elegíveis à manutenção preventiva, pede o envio do alerta à api-notificacoes
@@ -75,13 +81,25 @@ public class AlertaManutencaoService {
      * e devolve os alertas processados nesta execução.
      */
     public List<AlertaManutencao> verificarEEnviar() {
+        MDC.put(CorrelationId.MDC_KEY, UUID.randomUUID().toString());
+        try {
+            return executarVerificacao();
+        } finally {
+            MDC.remove(CorrelationId.MDC_KEY);
+        }
+    }
+
+    private List<AlertaManutencao> executarVerificacao() {
+        log.info("Verificação de manutenção preventiva iniciada");
         LocalDateTime agora = LocalDateTime.now();
 
         List<AlertaManutencao> aEnviar = new ArrayList<>(alertaRepository.findByStatus(StatusAlerta.PENDENTE));
+        int pendentes = aEnviar.size();
         Set<Long> veiculosComAlerta = new HashSet<>();
         aEnviar.forEach(alerta -> veiculosComAlerta.add(alerta.getVeiculoId()));
 
-        for (Veiculo veiculo : veiculoRepository.findByStatus(STATUS_VEICULO_ATIVO)) {
+        List<Veiculo> veiculosAtivos = veiculoRepository.findByStatus(STATUS_VEICULO_ATIVO);
+        for (Veiculo veiculo : veiculosAtivos) {
             if (veiculosComAlerta.contains(veiculo.getId())
                     || alertaRepository.existsByVeiculoIdAndStatusIn(veiculo.getId(), STATUS_EM_ABERTO)) {
                 continue;
@@ -89,14 +107,23 @@ public class AlertaManutencaoService {
             avaliar(veiculo, agora).ifPresent(alerta -> aEnviar.add(alertaRepository.save(alerta)));
         }
 
+        log.info("Veículos para alerta de manutenção encontrados: {} {} {} {}",
+                kv("veiculosAtivos", veiculosAtivos.size()),
+                kv("alertasPendentesReenvio", pendentes),
+                kv("alertasNovos", aEnviar.size() - pendentes),
+                kv("totalAEnviar", aEnviar.size()));
+
         boolean notificacoesDisponivel = true;
         for (AlertaManutencao alerta : aEnviar) {
             if (notificacoesDisponivel) {
                 notificacoesDisponivel = enviar(alerta);
+            } else {
+                log.warn("Alerta não enviado: api-notificacoes indisponível {} {}",
+                        kv("alertaId", alerta.getId()), kv("veiculoId", alerta.getVeiculoId()));
             }
         }
 
-        log.info("Verificação de manutenção preventiva: {} alerta(s) processado(s)", aEnviar.size());
+        log.info("Verificação de manutenção preventiva concluída: {}", kv("alertasProcessados", aEnviar.size()));
         return aEnviar;
     }
 
@@ -127,9 +154,15 @@ public class AlertaManutencaoService {
 
     /** @return false quando a api-notificacoes está fora do ar (alerta segue PENDENTE). */
     private boolean enviar(AlertaManutencao alerta) {
+        log.info("Chamando api-notificacoes para alerta {} {} {}",
+                kv("alertaId", alerta.getId()), kv("veiculoId", alerta.getVeiculoId()), kv("placa", alerta.getPlaca()));
         try {
             NotificacaoStatusResponse resposta = notificacaoClient.enviarAlertaManutencao(montarRequest(alerta));
             aplicarResposta(alerta, resposta);
+            log.info("api-notificacoes respondeu {} {} {}",
+                    kv("alertaId", alerta.getId()),
+                    kv("notificacaoId", alerta.getNotificacaoId()),
+                    kv("statusResposta", alerta.getStatus()));
         } catch (ResourceAccessException e) {
             log.warn("api-notificacoes indisponível; alerta {} permanece PENDENTE: {}", alerta.getId(), e.getMessage());
             alerta.setStatus(StatusAlerta.PENDENTE);
@@ -137,7 +170,10 @@ public class AlertaManutencaoService {
             alertaRepository.save(alerta);
             return false;
         } catch (RestClientException e) {
-            log.error("Falha ao enviar alerta {}: {}", alerta.getId(), e.getMessage());
+            log.error("Falha ao enviar alerta {} {}: {}", kv("alertaId", alerta.getId()),
+                    kv("httpStatus", e instanceof RestClientResponseException
+                            ? ((RestClientResponseException) e).getRawStatusCode() : null),
+                    e.getMessage());
             alerta.setStatus(StatusAlerta.FALHA);
             alerta.setErroMensagem(e.getMessage());
             alertaRepository.save(alerta);

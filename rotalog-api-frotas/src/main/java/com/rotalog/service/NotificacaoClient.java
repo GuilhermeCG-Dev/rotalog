@@ -2,11 +2,14 @@ package com.rotalog.service;
 
 import com.rotalog.dto.AlertaManutencaoNotificacaoRequest;
 import com.rotalog.dto.NotificacaoStatusResponse;
+import com.rotalog.logging.CorrelationId;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
@@ -39,8 +42,19 @@ public class NotificacaoClient {
      */
     public NotificacaoStatusResponse enviarAlertaManutencao(AlertaManutencaoNotificacaoRequest request) {
         String url = notificacaoApiUrl + "/api/notificacoes/alerta-manutencao";
-        log.info("Enviando alerta de manutenção para {}: veiculoId={}", url, request.getVeiculoId());
-        return restTemplate.postForObject(url, request, NotificacaoStatusResponse.class);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        String correlationId = MDC.get(CorrelationId.MDC_KEY);
+        if (correlationId != null) {
+            headers.set(CorrelationId.HEADER, correlationId);
+        }
+
+        log.info("Chamando api-notificacoes: url={} veiculoId={}", url, request.getVeiculoId());
+        ResponseEntity<NotificacaoStatusResponse> resposta = restTemplate.postForEntity(
+                url, new HttpEntity<>(request, headers), NotificacaoStatusResponse.class);
+        log.info("Resposta da api-notificacoes: veiculoId={} httpStatus={}",
+                request.getVeiculoId(), resposta.getStatusCodeValue());
+        return resposta.getBody();
     }
 
     /**

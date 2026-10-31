@@ -115,6 +115,10 @@ public class NotificacoesController : ControllerBase
     [HttpPost("alerta-manutencao")]
     public async Task<IActionResult> CriarAlertaManutencao([FromBody] AlertaManutencaoRequest request)
     {
+        _logger.LogInformation(
+            "Pedido de alerta de manutenção recebido: VeiculoId={VeiculoId} Placa={Placa} Motivo={Motivo} ReferenciaId={ReferenciaId}",
+            request.VeiculoId, request.Placa, request.Motivo, request.ReferenciaId);
+
         if (request.VeiculoId <= 0)
             return BadRequest(new { error = "Campo 'veiculoId' é obrigatório" });
         if (string.IsNullOrWhiteSpace(request.Placa))

@@ -30,5 +30,5 @@ dotnet run
 ```
 cd rotalog-frontend
 npm install
-npx nx run-many --target=serve --projects=painel-admin,rastreamento
+npx nx run-many --target=serve --projects=painel-admin rastreamento
 ```

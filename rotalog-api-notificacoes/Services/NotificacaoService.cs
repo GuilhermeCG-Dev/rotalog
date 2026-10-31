@@ -314,6 +314,10 @@ public class NotificacaoService
             notificacao.Tentativas++;
             notificacao.DataAtualizacao = DateTime.UtcNow;
 
+            _logger.LogInformation(
+                "Tentando enviar notificação: NotificacaoId={NotificacaoId} Canal={Canal} Tentativa={Tentativa}/{MaxTentativas}",
+                notificacao.Id, notificacao.Canal, notificacao.Tentativas, notificacao.MaxTentativas);
+
             // FIXME: Envio fake - simula envio com delay
             if (notificacao.Canal == "email")
             {
@@ -331,12 +335,15 @@ public class NotificacaoService
             notificacao.Status = "ENVIADO";
             notificacao.DataEnvio = DateTime.UtcNow;
 
-            _logger.LogInformation("Notificação enviada: {Id} via {Canal} para {Dest}",
-                notificacao.Id, notificacao.Canal, notificacao.Destinatario);
+            _logger.LogInformation(
+                "Resultado do envio: NotificacaoId={NotificacaoId} Canal={Canal} Destinatario={Dest} Resultado={Resultado}",
+                notificacao.Id, notificacao.Canal, notificacao.Destinatario, notificacao.Status);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Erro ao enviar notificação {Id}: {Msg}", notificacao.Id, ex.Message);
+            _logger.LogError(ex,
+                "Resultado do envio: NotificacaoId={NotificacaoId} Canal={Canal} Resultado=ERRO Tentativa={Tentativa}/{MaxTentativas} Erro={Erro}",
+                notificacao.Id, notificacao.Canal, notificacao.Tentativas, notificacao.MaxTentativas, ex.Message);
 
             notificacao.ErroMensagem = ex.Message;
 
